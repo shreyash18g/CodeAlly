@@ -19,21 +19,6 @@ given level (so you get the FULL curve, not just "where it died") --
 useful for seeing if a level recovers after a rough one, or degrades
 permanently.
 
-Usage:
-    python3 test_e_spike.py \
-        --submit-url http://localhost:8000/api/judge/submit/ \
-        --run-url http://localhost:8000/api/judge/run/ \
-        --login-url http://localhost:8000/api/auth/login/ \
-        --username YOUR_USERNAME --password YOUR_PASSWORD \
-        --levels 50,100,200,400,800 \
-        --run-burst-ratio 1.0 \
-        --problem-number 1 \
-        --out spike_results.csv
-
---run-burst-ratio controls how many run_code calls fire per submit_code
-call at each level (1.0 = equal numbers of each).
-
-Requires: pip install httpx redis psutil
 """
 
 import argparse
