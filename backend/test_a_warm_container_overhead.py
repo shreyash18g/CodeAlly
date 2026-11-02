@@ -7,16 +7,6 @@ Run this AFTER test_a_container_overhead.py so you have both numbers
 to compare directly. Same trivial C++ program, same iteration count,
 same machine -- only the execution model differs.
 
-Usage:
-    cd ~/Desktop/CodeAlly/backend
-    python3 test_a_warm_container_overhead.py 30 [n_testcases]
-
-n_testcases defaults to 1 (matches the original script's "1 container
-spawn" framing) but you should also try 5/15/30 directly, since the
-whole point of the warm model is that container START cost is paid
-ONCE regardless of how many test cases follow -- the original script
-extrapolated this with multiplication, but here we should measure it
-for real across different test case counts.
 """
 
 import os
