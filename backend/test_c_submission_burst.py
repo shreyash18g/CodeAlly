@@ -12,16 +12,7 @@ scales linearly or worse with burst size, and whether Celery concurrency
 is your limiter (compare runs with different `celery -A backend worker
 --concurrency=N`).
 
-Usage:
-    python test_c_submission_burst.py --url http://localhost:8000/api/submissions/submit/ \
-        --token <JWT_OR_SESSION_TOKEN> --burst-size 20 --problem-number 1
 
-You'll need a valid auth token for your IsAuthenticated submit_code endpoint
--- log in via your normal auth endpoint first and paste the token here, or
-adapt the `headers` dict below to however your auth works (Bearer JWT,
-Session+CSRF, etc).
-
-Requires: pip install httpx redis
 """
 
 import argparse
