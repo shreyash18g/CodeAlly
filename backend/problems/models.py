@@ -35,4 +35,4 @@ class Problem(models.Model):
     )
 
     def __str__(self):
-        return self.titles
+        return self.title

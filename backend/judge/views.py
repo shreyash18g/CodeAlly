@@ -1,9 +1,13 @@
+from django_ratelimit.decorators import ratelimit
+from celery.result import AsyncResult
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+
 from submissions.models import Submission
-from .tasks import process_submission
+from .tasks import process_submission, run_code_task
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -12,10 +16,8 @@ def submit_code(request):
     problemNumber = data.get("problemNumber")
     language = data.get("language")
     code = data.get("code")
-
     if not all([problemNumber, language, code]):
         return Response({"message": "Missing required fields"}, status=400)
-
     # 1. Register transaction into PostgreSQL
     submission = Submission.objects.create(
         userId=request.user,
@@ -24,10 +26,8 @@ def submit_code(request):
         code=code,
         verdict="QUEUED"
     )
-
     # 2. Push task out to Redis Broker for Celery to consume
     process_submission.delay(submission.id)
-
     # 3. Respond instantly back to front-end polling listener loops
     return Response(
         {
@@ -38,77 +38,82 @@ def submit_code(request):
     )
 
 
-import shutil
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated # Ensure user is logged in
-from rest_framework.response import Response
-
-from judge.executors.cpp_executor import (
-    prepare_submission,
-    write_input
-)
-from judge.executors.compiler import (
-    compile_cpp
-)
-from judge.executors.runner import (
-    run_binary
-)
-from judge.exceptions import (
-    CompileError,
-    RuntimeErrorJudge,
-    TimeLimitExceeded
-)
-
 @api_view(['POST'])
-@permission_classes([AllowAny]) # Secure this workspace runner view
-def run_code(request):
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)
+def run_code_public(request):
+    """Standalone open compiler / scratchpad feature. No login
+    required. Rate-limited per IP (10 requests/minute).
+
+    No longer executes inline -- pushes to Celery and returns
+    immediately, same pattern as submit_code. This was the original
+    architectural fix flagged during load testing: synchronous
+    execution inside the Gunicorn request thread was the system's
+    weakest point under concurrent load (54% success at just 100
+    concurrent requests during spike testing). Moving it onto the same
+    async pipeline submissions already use removes that bottleneck
+    entirely -- Gunicorn threads are now freed immediately, and actual
+    execution is bounded by the same Celery concurrency (16) that
+    submissions already share.
+    """
     code = request.data.get("code")
     input_data = request.data.get("input", "")
 
     if not code:
+        return Response({"message": "Code is required"}, status=400)
+
+    task = run_code_task.delay(code, input_data)
+    return Response({"taskId": task.id, "status": "QUEUED"}, status=202)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def run_code_authenticated(request):
+    """Problem-page 'Run against this test case' feature. Requires a
+    logged-in user -- enforced server-side. Same async pattern as
+    run_code_public above.
+    """
+    code = request.data.get("code")
+    input_data = request.data.get("input", "")
+
+    if not code:
+        return Response({"message": "Code is required"}, status=400)
+
+    task = run_code_task.delay(code, input_data)
+    return Response({"taskId": task.id, "status": "QUEUED"}, status=202)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_run_status(request, task_id):
+    """Polled by the frontend after either run_code endpoint returns a
+    taskId. Mirrors the existing submission-status polling pattern in
+    submissions/views.py (get_submission_status), just backed by
+    Celery's result backend (Redis) instead of a DB row, since Run
+    results are intentionally ephemeral.
+
+    AllowAny here is fine: task IDs are opaque UUIDs, not sequential
+    integers, so there's no meaningful enumeration risk the way there
+    would be with e.g. /submissions/<int:pk>/. Knowing a task_id
+    already implies you (or your browser) made that specific request.
+    """
+    result = AsyncResult(task_id)
+
+    if result.state == "PENDING":
+        return Response({"status": "PENDING"}, status=200)
+
+    if result.state == "FAILURE":
+        # Task itself raised an uncaught exception (infra-level, not
+        # a normal COMPILE_ERROR/RUNTIME_ERROR verdict -- those are
+        # caught and returned as normal dicts by run_code_task).
         return Response(
-            {"message": "Code is required"},
-            status=400
+            {"status": "FAILURE", "message": str(result.result)},
+            status=200,
         )
 
-    # 1. Initialize host temporary path directory maps safely with relaxed permissions
-    temp_dir = prepare_submission(code)
+    if result.state == "SUCCESS":
+        payload = result.result or {}
+        return Response({"status": "SUCCESS", **payload}, status=200)
 
-    try:
-        # 2. Attempt Compilation first
-        try:
-            compile_cpp(temp_dir)
-        except CompileError as e:
-            return Response({
-                "verdict": "COMPILE_ERROR",
-                "output": str(e)
-            }, status=200)
-
-        # 3. Mount text input stream directly to disk workspace layer after compilation passes
-        write_input(temp_dir, input_data)
-
-        # 4. Trigger unprivileged sandbox run-time container execution
-        try:
-            result = run_binary(temp_dir)
-        except RuntimeErrorJudge as e:
-            return Response({
-                "verdict": "RUNTIME_ERROR",
-                "output": str(e)
-            }, status=200)
-        except TimeLimitExceeded as e:
-            return Response({
-                "verdict": "TIME_LIMIT_EXCEEDED",
-                "output": "Time Limit Exceeded (Capped at 2 seconds)."
-            }, status=200)
-
-        # 5. Clean Accepted Return
-        return Response({
-            "verdict": "SUCCESS",
-            "output": result["output"],
-            "runtime": result.get("runtime", 0),
-            "memory": result.get("memory", 0)
-        }, status=200)
-
-    finally:
-        # Ensure temporary disk space paths drop cleanly under all exit conditions
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    # STARTED, RETRY, or any other intermediate Celery state
+    return Response({"status": result.state}, status=200)

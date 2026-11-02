@@ -1,10 +1,22 @@
-# judge/tasks.py
+import shutil
 
 from celery import shared_task
+
 from submissions.models import Submission
 from problems.models import Problem
 from .services import (
     judge_problem
+)
+from judge.executors.cpp_executor import (
+    prepare_submission,
+    write_input,
+)
+from judge.executors.compiler import compile_cpp
+from judge.executors.runner import run_binary
+from judge.exceptions import (
+    CompileError,
+    RuntimeErrorJudge,
+    TimeLimitExceeded,
 )
 
 
@@ -103,3 +115,59 @@ def process_submission(
         }
 
         submission.save()
+
+
+@shared_task
+def run_code_task(code, input_data):
+    """Async version of the old synchronous _execute_code() helper.
+
+    Used by BOTH run_code_public and run_code_authenticated, now that
+    run_code no longer executes inline inside the Gunicorn request
+    thread. Returns a plain dict -- Celery stores this in the result
+    backend (Redis, per backend/celery.py) keyed by this task's ID,
+    which the frontend polls for via get_run_status().
+
+    This is intentionally ephemeral: no DB model, no migration. The
+    result lives in Redis only as long as Celery's result_expires
+    setting allows (default 24h), then is automatically cleaned up --
+    appropriate since "Run" output was explicitly decided not to need
+    permanent history, unlike Submission records.
+    """
+    temp_dir = prepare_submission(code)
+
+    try:
+        try:
+            compile_cpp(temp_dir)
+        except CompileError as e:
+            return {"verdict": "COMPILE_ERROR", "output": str(e)}
+
+        write_input(temp_dir, input_data)
+
+        try:
+            result = run_binary(temp_dir)
+        except RuntimeErrorJudge as e:
+            return {"verdict": "RUNTIME_ERROR", "output": str(e)}
+        except TimeLimitExceeded as e:
+            return {
+                "verdict": "TIME_LIMIT_EXCEEDED",
+                "output": "Time Limit Exceeded (Capped at 2 seconds).",
+            }
+
+        return {
+            "verdict": "SUCCESS",
+            "output": result["output"],
+            "runtime": result.get("runtime", 0),
+            "memory": result.get("memory", 0),
+        }
+
+    except Exception as e:
+        # Catch-all so a Docker/infra hiccup doesn't leave the task
+        # stuck in PENDING forever with no explanation -- mirrors the
+        # INTERNAL_ERROR handling process_submission already does.
+        return {
+            "verdict": "INTERNAL_ERROR",
+            "output": str(e),
+        }
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

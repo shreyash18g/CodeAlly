@@ -86,16 +86,19 @@ export default function Navbar() {
       <div className="flex items-center gap-5">
         {user ? (
           <div className="flex items-center gap-4">
-            <Link 
-              to="/profile" 
-              className={`text-sm font-mono font-medium px-4 py-1.5 rounded-xl border transition-all duration-300 ${
-                location.pathname === "/profile"
-                  ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-lg shadow-emerald-950/40"
-                  : "bg-gray-900/60 border-gray-800 text-gray-300 hover:border-gray-700 hover:text-white"
-              }`}
-            >
-              ~/{user.firstname?.toLowerCase() || "user"}
-            </Link>
+            <Link
+  to="/profile"
+  className={`flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl border transition-all duration-300 ${
+    location.pathname === "/profile"
+      ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-400"
+      : "bg-gray-900/60 border-gray-800 text-gray-300 hover:border-emerald-500/50 hover:text-white"
+  }`}
+>
+  <span className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-emerald-400 to-blue-500 text-white text-xs font-bold">
+    {user.firstname?.charAt(0).toUpperCase() || "U"}
+  </span>
+  <span>{user.firstname || "My Profile"}</span>
+</Link>
             <button
               onClick={handleLogout}
               className="text-xs uppercase font-bold tracking-wider bg-transparent hover:bg-red-950/20 text-gray-400 hover:text-red-400 border border-gray-800 hover:border-red-900/40 px-4 py-2 rounded-xl transition-all duration-200"

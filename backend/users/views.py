@@ -4,6 +4,13 @@ from django.shortcuts import render
 import re
 import jwt
 
+import hashlib
+import secrets
+
+from datetime import timedelta
+from django.utils import timezone
+from django.core.mail import send_mail
+
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.hashers import check_password
@@ -154,11 +161,110 @@ def profile(request):
     })
 
 
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def user_profile(request, user_id):
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"message": "User not found"}, status=404)
+
+    return Response({
+        "id": user.id,
+        "firstname": user.firstname,
+        "lastname": user.lastname,
+        "role": user.role,
+        "solvedProblems": user.solvedProblems
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_solved_problems(request):
 
     return Response(
         request.user.solvedProblems,
+        status=200
+    )
+
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    email = request.data.get("email")
+
+    if not email:
+        return Response({"message": "Email is required"}, status=400)
+
+    user = User.objects.filter(email=email).first()
+
+    msg = "If an account exists with this email, a reset link has been sent."
+
+    if not user:
+        return Response({"message": msg}, status=200)
+
+    token = secrets.token_urlsafe(32)
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+
+    user.resetToken = hashed_token
+    user.resetTokenExpiry = timezone.now() + timedelta(minutes=15)
+    user.save(update_fields=["resetToken", "resetTokenExpiry"])
+
+    reset_link = f"{settings.FRONTEND_URL}/reset-password/{token}"
+
+    send_mail(
+        subject="CodeAlly Password Reset",
+        message=f"Use this link to reset your password:\n\n{reset_link}\n\nThis link expires in 15 minutes.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
+
+    return Response({"message": msg}, status=200)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def reset_password(request):
+    token = request.data.get("token")
+    password = request.data.get("password")
+
+    if not token or not password:
+        return Response(
+            {"message": "Token and password are required"},
+            status=400
+        )
+
+    if not is_strong_password(password):
+        return Response(
+            {"message": "Password must be at least 6 characters and include an uppercase letter and a number."},
+            status=400
+        )
+
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
+
+    user = User.objects.filter(
+        resetToken=hashed_token
+    ).first()
+
+    if not user or not user.resetTokenExpiry:
+        return Response({"message": "Invalid or expired reset link"}, status=400)
+
+    if user.resetTokenExpiry <= timezone.now():
+        return Response({"message": "Invalid or expired reset link"}, status=400)
+
+    user.set_password(password)
+    user.resetToken = None
+    user.resetTokenExpiry = None
+    user.save(update_fields=[
+        "password",
+        "resetToken",
+        "resetTokenExpiry"
+    ])
+
+    return Response(
+        {"message": "Password reset successfully. Please log in."},
         status=200
     )

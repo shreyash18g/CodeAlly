@@ -30,6 +30,17 @@ export const login = (email, password) => {
   });
 };
 
+export const forgotPassword = (email) => {
+  return API.post("/api/auth/forgot-password/", { email });
+};
+
+export const resetPassword = (token, password) => {
+  return API.post("/api/auth/reset-password/", {
+    token,
+    password,
+  });
+};
+
 export const register = (
   firstname,
   lastname,
@@ -62,6 +73,11 @@ export const getSubmissionHistory = () => {
 export const getProfile = () => {
   return API.get("/api/auth/profile/");
 };
+
+export const getUserProfile = (id) => {
+  return API.get(`/api/auth/profile/${id}/`);
+};
+
 export const fetchLeaderboard = () => {
   return API.get("/api/leaderboard/");
 };
