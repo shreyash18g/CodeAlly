@@ -1,15 +1,4 @@
-"""
-judge/services_warm.py
 
-Same logic as the original judge/services.py:judge_problem(), but using
-the warm-container execution model (one container per submission,
-exec_run per test case) instead of one container per test case.
-
-Kept as a SEPARATE file from services.py on purpose, so you can run
-both side-by-side for Test A-style comparison, and so the original
-(known-correct, more isolated) implementation isn't lost if you ever
-want to roll back or A/B the two approaches.
-"""
 
 import shutil
 
@@ -40,9 +29,7 @@ def judge_problem_warm(code, hidden_testcases):
     container = None
 
     try:
-        # ONE container for the entire submission -- this replaces the
-        # per-call container creation that compile_cpp()/run_binary()
-        # used to do internally.
+        
         container = start_submission_container(temp_dir)
 
         try:
