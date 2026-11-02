@@ -1,7 +1,5 @@
 """
-Test D — Resource leak monitor. Run this in a separate terminal WHILE
-Test B or Test C is running, to watch for container leaks or host
-resource drift under sustained load.
+Test D — Resource leak monitor. 
 
 Specifically watches:
   - total containers (running + exited, from codejudge-cpp image) --
@@ -12,9 +10,6 @@ Specifically watches:
   - host memory available
   - host file descriptor usage roughly (open files count, optional)
 
-Usage:
-    python test_d_leak_monitor.py --interval 2 --duration 120
-    (Ctrl+C to stop early; a CSV is written either way)
 """
 
 import argparse
