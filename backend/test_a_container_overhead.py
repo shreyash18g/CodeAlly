@@ -5,12 +5,6 @@ Measures the pure Docker cost of compile_cpp() + run_binary(), with no
 Django, no Celery, no HTTP in the loop. This gives you the baseline
 "cost per container spawn" number that everything else is built on.
 
-Run from your Django project root (so judge.* imports resolve), with
-DJANGO_SETTINGS_MODULE set, e.g.:
-
-    cd ~/Desktop/CodeAlly/backend
-    DJANGO_SETTINGS_MODULE=backend.settings python test_a_container_overhead.py
-
 Make sure the codejudge-cpp image is already built and Docker daemon is running.
 """
 
